@@ -7,6 +7,8 @@ const Allocator = std.mem.Allocator;
 
 const Archetype = @import("Archetype.zig");
 
+const View = @import("View.zig");
+
 // Fields
 
 /// The allocator used to allocate all the data in this world.
@@ -76,7 +78,7 @@ pub fn createEntity(self: *World) !EntityID {
 /// Adds a new component, or overrides the value of an existing one.
 /// Will move the entity to a new archetype, if needed.
 pub fn addComponent(self: *World, entity_id: EntityID, component_id: u64, value: anytype) !void {
-    try self.addComponents(entity_id, &.{component_id}, &.{value});
+    try self.addComponents(entity_id, .{.{ component_id, value }});
 }
 
 // ADD COMPONENTS //
@@ -84,22 +86,21 @@ pub fn addComponent(self: *World, entity_id: EntityID, component_id: u64, value:
 /// Adds multiple components at once, or overrides the value of existing ones.
 /// Will move the entity to a new archetype, if needed.
 ///
+/// The `components` variable should be a tuple where each entry is also a tuple of `{component_id, anytype}`, for the component's ID and value.
+///
 /// TODO - See if we can optimize this instead of calling setRaw a bunch of times. setRaw can be expensive when moving between lots of archetypes, or big archetypes
-pub fn addComponents(self: *World, entity_id: EntityID, component_ids: []const u64, component_values: anytype) !void {
-    if (component_ids.len != component_values.len)
-        return error.ComponentAndValuesLengthMismatch;
-
+pub fn addComponents(self: *World, entity_id: EntityID, components: anytype) !void {
     // Find the entity's index and archetype.
     const entity_index = self.entities.getPtr(entity_id).?;
     var entity_archetype = &self.archetypes.values()[entity_index.archetype_index];
 
-    // Find all the components not already present in this archetype.
-    var new_indexes = try std.ArrayList(u64).initCapacity(self.allocator, component_ids.len);
+    // Find the indexes inside `components of all components not present in the existing archetype.
+    var new_indexes = try std.ArrayList(u64).initCapacity(self.allocator, components.len);
     defer new_indexes.deinit();
-    for (0..component_ids.len) |index| {
-        if (!entity_archetype.hasComponent(component_ids[index])) {
-            new_indexes.appendAssumeCapacity(@intCast(index));
-        }
+
+    inline for (components, 0..) |component_tuple, i| {
+        if (!entity_archetype.hasComponent(component_tuple[0]))
+            new_indexes.appendAssumeCapacity(@intCast(i));
     }
 
     // If there are any new components, move to new archetype.
@@ -113,7 +114,7 @@ pub fn addComponents(self: *World, entity_id: EntityID, component_ids: []const u
             new_archetype = found;
             new_archetype_index = @intCast(self.archetypes.getIndex(new_archetype_id).?);
         } else {
-            const tmp_arch = try entity_archetype.withComponentsSelected(component_ids, new_indexes.items, component_values);
+            const tmp_arch = try entity_archetype.withComponentsSelected(new_indexes.items, components);
             const id = tmp_arch.getId();
             try self.archetypes.put(self.allocator, id, tmp_arch);
 
@@ -145,8 +146,8 @@ pub fn addComponents(self: *World, entity_id: EntityID, component_ids: []const u
     }
 
     // Set values on components
-    inline for (0..component_values.len) |i| {
-        entity_archetype.set(entity_index.entity_index, component_ids[i], component_values[i]);
+    inline for (components) |tuple| {
+        entity_archetype.set(entity_index.entity_index, tuple[0], tuple[1]);
     }
 }
 
@@ -163,19 +164,19 @@ pub fn setComponent(self: *World, entity_id: EntityID, component_id: u64, value:
 
 /// Sets the value of multiple components.
 /// Assumes the entity ID is valid, the components exists on that entity already, and that values are of the correct type.
-pub fn setComponents(self: *World, entity_id: EntityID, component_ids: []u64, values: anytype) !void {
-    if (component_ids.len != values.len)
-        return error.ComponentIdsAndValuesLengthMismatch;
-
+///
+/// The `components` variable should be a tuple where each entry is also a tuple of `{component_id, anytype}`, for the component's ID and value.
+pub fn setComponents(self: *World, entity_id: EntityID, components: anytype) void {
     const entity_index = self.entities.getPtr(entity_id).?;
-    const entity_archetype = self.archetypes.values()[entity_index.archetype_index];
+    const entity_archetype = &self.archetypes.values()[entity_index.archetype_index];
 
-    inline for (0..values.len) |index| {
-        entity_archetype.set(entity_id, component_ids[index], values[index]);
+    inline for (components) |tuple| {
+        entity_archetype.set(entity_index.entity_index, tuple[0], tuple[1]);
     }
 }
 
 // GET COMPONENTS //
+
 pub fn getComponent(self: *World, entity_id: EntityID, component_id: u64, comptime T: type) ?T {
     const entity_index = self.entities.getPtr(entity_id).?;
     const entity_archetype = &self.archetypes.values()[entity_index.archetype_index];
@@ -184,6 +185,13 @@ pub fn getComponent(self: *World, entity_id: EntityID, component_id: u64, compti
         return null;
 
     return entity_archetype.get(entity_index.entity_index, component_id, T);
+}
+
+// VIEWS //
+
+pub fn getView(self: *World, component_ids: []u64) !View {
+    _ = self;
+    _ = component_ids;
 }
 
 // OTHER //

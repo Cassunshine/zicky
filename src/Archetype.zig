@@ -81,7 +81,9 @@ pub fn withComponents(self: *Archetype, comptime types: []type, ids: [types.len]
 }
 
 /// Same as withComponents, but instead adds only the types at the indexes present in a given slice.
-pub fn withComponentsSelected(self: *Archetype, ids: []const u64, selected: []const u64, values: anytype) !Archetype {
+///
+/// The `components` variable should be a tuple where each entry is also a tuple of `{component_id, anytype}`, for the component's ID and value.
+pub fn withComponentsSelected(self: *Archetype, selected: []const u64, components: anytype) !Archetype {
     // Create shallow copy of self to start with.
     var archetype = try self.shallowDupe();
     errdefer archetype.deinit();
@@ -91,14 +93,14 @@ pub fn withComponentsSelected(self: *Archetype, ids: []const u64, selected: []co
     {
         var index: usize = 0;
         // Iterate all ids.
-        for (0..ids.len) |i| {
+        inline for (0..components.len) |i| {
             for (selected) |s| {
                 // If index isn't a selected index, ignore it.
                 if (i != s)
                     continue;
 
                 // If index IS selected, record it, then move to the next index.
-                selected_ids[index] = ids[i];
+                selected_ids[index] = components[i][0];
                 index += 1;
                 break;
             }
@@ -113,9 +115,9 @@ pub fn withComponentsSelected(self: *Archetype, ids: []const u64, selected: []co
     std.mem.sort(u64, archetype.component_ids, {}, std.sort.asc(u64));
 
     // Create new components with the selected new types.
-    inline for (0..values.len) |i| {
-        const t = @TypeOf(values[i]);
-        const id = ids[i];
+    inline for (0..components.len) |i| {
+        const t = @TypeOf(components[i][1]);
+        const id = components[i][0];
 
         for (0..selected.len) |s| {
             // If index isn't selected, ignore it.
